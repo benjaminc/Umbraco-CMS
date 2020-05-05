@@ -1,6 +1,15 @@
 (function () {
     "use strict";
 
+
+    /**
+     * @ngdoc component
+     * @name Umbraco.Editors.BlockList.blockListPropertyEditor
+     * @function
+     *
+     * @description
+     * The component for the block list property editor.
+     */
     angular
         .module("umbraco")
         .component("blockListPropertyEditor", {
@@ -17,7 +26,7 @@
             }
         });
 
-    function BlockListController($scope, $interpolate, editorService, clipboardService, localizationService, overlayService, blockEditorService, contentResource, eventsService) {
+    function BlockListController($scope, editorService, clipboardService, localizationService, overlayService, blockEditorService) {
         
         var unsubscribe = [];
         var modelObject;
@@ -26,6 +35,7 @@
         var copyAllBlocksAction;
         var deleteAllBlocksAction;
 
+        var inlineEditing = false;
 
         var vm = this;
 
@@ -49,10 +59,16 @@
 
         vm.$onInit = function() {
 
+            inlineEditing = vm.model.config.useInlineEditingAsDefault;
+
             vm.validationLimit = vm.model.config.validationLimit;
 
-            vm.listWrapperSyles = {'max-width': vm.model.config.maxPropertyWidth};
+            vm.listWrapperStyles = {};
             
+            if (vm.model.config.maxPropertyWidth) {
+                vm.listWrapperStyles['max-width'] = vm.model.config.maxPropertyWidth;
+            }
+
             // We need to ensure that the property model value is an object, this is needed for modelObject to recive a reference and keep that updated.
             if(typeof vm.model.value !== 'object' || vm.model.value === null) {// testing if we have null or undefined value or if the value is set to another type than Object.
                 vm.model.value = {};
@@ -123,7 +139,7 @@
             if (block === null) return null;
 
             // Lets apply fallback views, and make the view available directly on the blockModel.
-            block.view = block.config.view || (vm.model.config.useInlineEditingAsDefault ? "views/blockelements/inlineblock/inlineblock.editor.html" : "views/blockelements/labelblock/labelblock.editor.html");
+            block.view = (block.config.view ? "/" + block.config.view : (inlineEditing ? "views/blockelements/inlineblock/inlineblock.editor.html" : "views/blockelements/labelblock/labelblock.editor.html"));
 
             block.showSettings = block.config.settingsElementTypeAlias != null;
 
@@ -184,30 +200,33 @@
             vm.blocks.forEach(deleteBlock);
         }
 
-        function editBlock(blockModel, hideContent) {
-            
+        function editBlock(blockModel, openSettings) {
+
             // make a clone to avoid editing model directly.
-            var blockContentModelClone = angular.copy(blockModel.content);
-            var blockSettingsModelClone = null;
+            var blockContentClone = angular.copy(blockModel.content);
+            var blockSettingsClone = null;
 
             if (blockModel.config.settingsElementTypeAlias) {
-                blockSettingsModelClone = angular.copy(blockModel.settings);
+                blockSettingsClone = angular.copy(blockModel.settings);
             }
+
+            var hideContent = (openSettings === true && inlineEditing === true);
             
             var blockEditorModel = {
-                content: blockContentModelClone,
+                content: blockContentClone,
                 hideContent: hideContent,
-                settings: blockSettingsModelClone,
+                openSettings: openSettings === true,
+                settings: blockSettingsClone,
                 title: blockModel.label,
                 view: "views/common/infiniteeditors/blockeditor/blockeditor.html",
                 size: blockModel.config.editorSize || "medium",
                 submit: function(blockEditorModel) {
-                    // To ensure syncronization gets tricked we transfer
+                    // To ensure syncronization gets tricked we transfer each property.
                     if (blockEditorModel.content !== null) {
-                        blockEditorService.mapElementTypeValues(blockEditorModel.content, blockModel.content)
+                        blockEditorService.mapElementValues(blockEditorModel.content, blockModel.content)
                     }
                     if (blockModel.config.settingsElementTypeAlias !== null) {
-                        blockEditorService.mapElementTypeValues(blockEditorModel.settings, blockModel.settings)
+                        blockEditorService.mapElementValues(blockEditorModel.settings, blockModel.settings)
                     }
                     editorService.close();
                 },
@@ -238,27 +257,33 @@
                 orderBy: "$index",
                 view: "views/common/infiniteeditors/blockpicker/blockpicker.html",
                 size: (amountOfAvailableTypes > 8 ? "medium" : "small"),
-                clickPasteItem: function(item) {
+                filter: (amountOfAvailableTypes > 8),
+                clickPasteItem: function(item, mouseEvent) {
                     if (item.type === "elementTypeArray") {
                         var indexIncrementor = 0;
-                        item.data.forEach(function (entry) {
+                        item.pasteData.forEach(function (entry) {
                             if (requestPasteFromClipboard(createIndex + indexIncrementor, entry)) {
                                 indexIncrementor++;
                             }
                         });
                     } else {
-                        requestPasteFromClipboard(createIndex, item.data);
+                        requestPasteFromClipboard(createIndex, item.pasteData);
                     }
-                    blockPickerModel.close();
+                    if(!(mouseEvent.ctrlKey || mouseEvent.metaKey)) {
+                        blockPickerModel.close();
+                    }
                 },
-                submit: function(blockPickerModel) {
+                submit: function(blockPickerModel, mouseEvent) {
                     var added = false;
-                    if (model && model.selectedItem) {
-                        added = addNewBlock(createIndex, model.selectedItem.alias);
+                    if (blockPickerModel && blockPickerModel.selectedItem) {
+                        added = addNewBlock(createIndex, blockPickerModel.selectedItem.blockConfigModel.contentTypeAlias);
                     }
-                    blockPickerModel.close();
-                    if (added && vm.model.config.useInlineEditingAsDefault !== true && vm.blocks.length > createIndex) {
-                        editBlock(vm.blocks[createIndex]);
+                    
+                    if(!(mouseEvent.ctrlKey || mouseEvent.metaKey)) {
+                        blockPickerModel.close();
+                        if (added && vm.model.config.useInlineEditingAsDefault !== true && vm.blocks.length > createIndex) {
+                            editBlock(vm.blocks[createIndex]);
+                        }
                     }
                 },
                 close: function() {
@@ -266,35 +291,42 @@
                 }
             };
 
-            blockPickerModel.pasteItems = [];
+            blockPickerModel.clickClearClipboard = function ($event) {
+                clipboardService.clearEntriesOfType("elementType", vm.availableContentTypes);
+                clipboardService.clearEntriesOfType("elementTypeArray", vm.availableContentTypes);
+            };
+
+            blockPickerModel.clipboardItems = [];
 
             var singleEntriesForPaste = clipboardService.retriveEntriesOfType("elementType", vm.availableContentTypes);
             singleEntriesForPaste.forEach(function (entry) {
-                blockPickerModel.pasteItems.push({
-                    type: "elementType",
-                    name: entry.label,
-                    data: entry.data,
-                    icon: entry.icon
-                });
+                blockPickerModel.clipboardItems.push(
+                    {
+                        type: "elementType",
+                        pasteData: entry.data,
+                        blockConfigModel: modelObject.getScaffoldFor(entry.alias),
+                        elementTypeModel: {
+                            name: entry.label,
+                            icon: entry.icon
+                        }
+                    }
+                );
             });
             
             var arrayEntriesForPaste = clipboardService.retriveEntriesOfType("elementTypeArray", vm.availableContentTypes);
             arrayEntriesForPaste.forEach(function (entry) {
-                blockPickerModel.pasteItems.push({
-                    type: "elementTypeArray",
-                    name: entry.label,
-                    data: entry.data,
-                    icon: entry.icon
-                });
+                blockPickerModel.clipboardItems.push(
+                    {
+                        type: "elementTypeArray",
+                        pasteData: entry.data,
+                        blockConfigModel: {}, // no block configuration for paste items of elementTypeArray.
+                        elementTypeModel: {
+                            name: entry.label,
+                            icon: entry.icon
+                        }
+                    }
+                );
             });
-
-            blockPickerModel.clickClearPaste = function ($event) {
-                $event.stopPropagation();
-                $event.preventDefault();
-                clipboardService.clearEntriesOfType("elementType", vm.availableContentTypes);
-                clipboardService.clearEntriesOfType("elementTypeArray", vm.availableContentTypes);
-                vm.blockTypePicker.pasteItems = [];// This dialog is not connected via the clipboardService events, so we need to update manually.
-            };
 
             // open block picker overlay
             editorService.open(blockPickerModel);
