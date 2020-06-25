@@ -27,7 +27,7 @@ config.compile.current = config.compile.build;
 // ***********************************************************
 // These Exports are the new way of defining Tasks in Gulp 4.x
 // ***********************************************************
-exports.build = series(parallel(dependencies, js, less, views), testUnit);
+exports.build = series(parallel(dependencies, js, less, views));
 exports.dev = series(setDevelopmentMode, parallel(dependencies, js, less, views), watchTask);
 exports.watch = series(watchTask);
 // 
