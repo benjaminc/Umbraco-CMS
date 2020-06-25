@@ -1,10 +1,7 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Dtos;
 
@@ -24,7 +21,7 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             docTypes.ForEach(d => docTypeMap[d.Alias] = d.NodeId);
 
             // Find all Nested Content or Block List data types
-            var dataTypes = GetDataTypes(Constants.PropertyEditors.Aliases.NestedContent, Constants.PropertyEditors.Aliases.BlockList);
+            var dataTypes = GetDataTypes(Constants.PropertyEditors.Aliases.BlockList);
 
             // Find all document types listed in each
             var elementTypeIds = dataTypes.SelectMany(d => GetDocTypeIds(d.Configuration, docTypeMap)).ToList();
@@ -39,6 +36,8 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             elementTypeIds = elementTypeIds.Union(parentElementTypeIds).ToList();
 
             // Convert all those document types to element type
+            // TODO: We need to wait on an update from @benjaminc to make this 'safe'
+            // see https://github.com/umbraco/Umbraco-CMS/pull/7910#discussion_r409927495
             foreach (var docType in docTypes)
             {
                 if (!elementTypeIds.Contains(docType.NodeId)) continue;
@@ -63,24 +62,13 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             if (configuration.IsNullOrWhiteSpace() || configuration[0] != '{') return Enumerable.Empty<int>();
 
             var obj = JObject.Parse(configuration);
-            if (obj["contentTypes"] is JArray ncArr)
-            {
-                var arr = ncArr.ToObject<ContentType[]>();
-                return arr.Select(i => idMap.TryGetValue(i.Alias, out var id) ? id : 0).Where(i => i != 0);
-            }
-            else if (obj["blocks"] is JArray blArr)
+            if (obj["blocks"] is JArray blArr)
             {
                 var arr = blArr.ToObject<BlockConfiguration[]>();
                 return arr.Select(i => idMap.TryGetValue(i.Alias, out var id) ? id : 0).Where(i => i != 0);
             }
 
             return Enumerable.Empty<int>();
-        }
-
-        public class ContentType
-        {
-            [JsonProperty("ncAlias")]
-            public string Alias { get; set; }
         }
 
         public class BlockConfiguration

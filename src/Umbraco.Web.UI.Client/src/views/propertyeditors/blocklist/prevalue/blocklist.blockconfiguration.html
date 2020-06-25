@@ -11,7 +11,7 @@
 
         <umb-block-card
             block-config-model="block"
-            element-type-model="vm.getElementTypeByAlias(block.contentTypeAlias)"
+            element-type-model="vm.getElementTypeByKey(block.contentTypeKey)"
             ng-repeat="block in model.value"
             ng-class="{'--isOpen':vm.openBlock === block}"
             ng-click="vm.openBlockOverlay(block)">
@@ -23,7 +23,7 @@
             </div>
         </umb-block-card>
 
-        <button id="{{model.alias}}" type="button" class="btn-reset __add-button" ng-click="vm.openAddDialog($event)" ng-disabled="!vm.enableAddBlock">
+        <button id="{{model.alias}}" type="button" class="btn-reset __add-button" ng-click="vm.openAddDialog($event)">
             <localize key="general_add">Add</localize>
         </button>
     </div>

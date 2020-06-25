@@ -1,6 +1,15 @@
 (function () {
     "use strict";
 
+
+    /**
+     * @ngdoc component
+     * @name umbraco.directives.directive:blockListPropertyEditor
+     * @function
+     *
+     * @description
+     * The component for the block list property editor.
+     */
     angular
         .module("umbraco")
         .component("blockListPropertyEditor", {
@@ -13,11 +22,12 @@
             },
             require: {
                 umbProperty: "?^umbProperty",
-                umbVariantContent: '?^^umbVariantContent'
+                umbVariantContent: '?^^umbVariantContent',
+                umbVariantContentEditors: '?^^umbVariantContentEditors'
             }
         });
 
-    function BlockListController($scope, $interpolate, editorService, clipboardService, localizationService, overlayService, blockEditorService, contentResource, eventsService) {
+    function BlockListController($scope, editorService, clipboardService, localizationService, overlayService, blockEditorService) {
         
         var unsubscribe = [];
         var modelObject;
@@ -26,14 +36,23 @@
         var copyAllBlocksAction;
         var deleteAllBlocksAction;
 
+        var inlineEditing = false;
+        var liveEditing = true;
 
         var vm = this;
 
-        vm.moveFocusToBlock = null;
-        vm.showCopy = clipboardService.isSupported();
+        vm.loading = true;
+        vm.currentBlockInFocus = null;
+        vm.setBlockFocus = function(block) {
+            if(vm.currentBlockInFocus !== null) {
+                vm.currentBlockInFocus.focus = false;
+            }
+            vm.currentBlockInFocus = block;
+            block.focus = true;
+        }
+        vm.supportCopy = clipboardService.isSupported();
 
-        var layout = [];// The layout object specific to this Block Editor, will be a direct reference from Property Model.
-        vm.blocks = [];// Runtime list of block models, needs to be synced to property model on form submit.
+        vm.layout = [];// The layout object specific to this Block Editor, will be a direct reference from Property Model.
         vm.availableBlockTypes = [];// Available block entries of this property editor.
 
         var labels = {};
@@ -49,18 +68,30 @@
 
         vm.$onInit = function() {
 
+            inlineEditing = vm.model.config.useInlineEditingAsDefault;
+            liveEditing = vm.model.config.useLiveEditing;
+
             vm.validationLimit = vm.model.config.validationLimit;
 
-            vm.listWrapperSyles = {'max-width': vm.model.config.maxPropertyWidth};
+            vm.listWrapperStyles = {};
             
+            if (vm.model.config.maxPropertyWidth) {
+                vm.listWrapperStyles['max-width'] = vm.model.config.maxPropertyWidth;
+            }
+
             // We need to ensure that the property model value is an object, this is needed for modelObject to recive a reference and keep that updated.
             if(typeof vm.model.value !== 'object' || vm.model.value === null) {// testing if we have null or undefined value or if the value is set to another type than Object.
                 vm.model.value = {};
             }
+
+            var scopeOfExistence = $scope;
+            if(vm.umbVariantContentEditors && vm.umbVariantContentEditors.getScope) {
+                scopeOfExistence = vm.umbVariantContentEditors.getScope();
+            }
             
             // Create Model Object, to manage our data for this Block Editor.
-            modelObject = blockEditorService.createModelObject(vm.model.value, vm.model.editor, vm.model.config.blocks, $scope);
-            modelObject.loadScaffolding().then(onLoaded);
+            modelObject = blockEditorService.createModelObject(vm.model.value, vm.model.editor, vm.model.config.blocks, scopeOfExistence, $scope);
+            modelObject.load().then(onLoaded);
 
             copyAllBlocksAction = {
                 labelKey: "clipboard_labelForCopyAllEntries",
@@ -99,62 +130,77 @@
         function onLoaded() {
 
             // Store a reference to the layout model, because we need to maintain this model.
-            layout = modelObject.getLayout();
+            vm.layout = modelObject.getLayout([]);
 
-            // maps layout entries to editor friendly models aka. BlockModels.
-            layout.forEach(entry => {
-                var block = getBlockModel(entry);
-                if(block !== null) {
-                    vm.blocks.push(block);
+            // Append the blockObjects to our layout.
+            vm.layout.forEach(entry => {
+                if (entry.$block === undefined || entry.$block === null) {
+                    var block = getBlockObject(entry);
+    
+                    // If this entry was not supported by our property-editor it would return 'null'.
+                    if(block !== null) {
+                        entry.$block = block;
+                    }
                 }
             });
 
-            vm.availableContentTypes = modelObject.getAvailableAliasesForBlockContent();
+            vm.availableContentTypesAliases = modelObject.getAvailableAliasesForBlockContent();
             vm.availableBlockTypes = modelObject.getAvailableBlocksForBlockPicker();
+
+            vm.loading = false;
 
             $scope.$evalAsync();
 
         }
 
+        function getDefaultViewForBlock(block) {
+            
+            if (block.config.unsupported === true)
+                return "views/propertyeditors/blocklist/blocklistentryeditors/unsupportedblock/unsupportedblock.editor.html";
 
-        function getBlockModel(entry) {
-            var block = modelObject.getBlockModel(entry);
+            if (inlineEditing === true)
+                return "views/propertyeditors/blocklist/blocklistentryeditors/inlineblock/inlineblock.editor.html";
+            return "views/propertyeditors/blocklist/blocklistentryeditors/labelblock/labelblock.editor.html";
+        }
+
+        function getBlockObject(entry) {
+            var block = modelObject.getBlockObject(entry);
 
             if (block === null) return null;
 
-            // Lets apply fallback views, and make the view available directly on the blockModel.
-            block.view = block.config.view || (vm.model.config.useInlineEditingAsDefault ? "views/blockelements/inlineblock/inlineblock.editor.html" : "views/blockelements/labelblock/labelblock.editor.html");
+            block.view = (block.config.view ? "/" + block.config.view : getDefaultViewForBlock(block));
 
-            block.showSettings = block.config.settingsElementTypeAlias != null;
+            block.showSettings = block.config.settingsElementTypeKey != null;
+            block.showCopy = vm.supportCopy && block.config.contentTypeKey != null;// if we have content, otherwise it dosnt make sense to copy.
 
             return block;
         }
 
 
-        function addNewBlock(index, contentTypeAlias) {
+        function addNewBlock(index, contentTypeKey) {
 
             // Create layout entry. (not added to property model jet.)
-            var layoutEntry = modelObject.create(contentTypeAlias);
+            var layoutEntry = modelObject.create(contentTypeKey);
             if (layoutEntry === null) {
                 return false;
             }
 
             // make block model
-            var blockModel = getBlockModel(layoutEntry);
-            if (blockModel === null) {
+            var blockObject = getBlockObject(layoutEntry);
+            if (blockObject === null) {
                 return false;
             }
             
-            // If we reach this line, we are good to add the layoutEntry and blockModel to our models.
+            // If we reach this line, we are good to add the layoutEntry and blockObject to our models.
+
+            // Add the Block Object to our layout entry.
+            layoutEntry.$block = blockObject;
 
             // add layout entry at the decired location in layout.
-            layout.splice(index, 0, layoutEntry);
-
-            // apply block model at decired location in blocks.
-            vm.blocks.splice(index, 0, blockModel);
+            vm.layout.splice(index, 0, layoutEntry);
             
             // lets move focus to this new block.
-            vm.moveFocusToBlock = blockModel;
+            vm.setBlockFocus(blockObject);
 
             return true;
 
@@ -164,57 +210,78 @@
 
         function deleteBlock(block) {
 
-            var index = vm.blocks.indexOf(block);
-            if(index !== -1) {
-
-                var layoutIndex = layout.findIndex(entry => entry.udi === block.content.udi);
-                if(layoutIndex !== -1) {
-                    layout.splice(index, 1);
-                } else {
-                    throw new Error("Could not find layout entry of block with udi: "+block.content.udi)
-                }
-
-                vm.blocks.splice(index, 1);
-
-                modelObject.removeDataAndDestroyModel(block);
+            var layoutIndex = vm.layout.findIndex(entry => entry.udi === block.content.udi);
+            if(layoutIndex === -1) {
+                throw new Error("Could not find layout entry of block with udi: "+block.content.udi)
             }
+            vm.layout.splice(layoutIndex, 1);
+            modelObject.removeDataAndDestroyModel(block);
+
         }
 
         function deleteAllBlocks() {
-            vm.blocks.forEach(deleteBlock);
+            vm.layout.forEach(entry => {
+                deleteBlock(entry.$block);
+            });
         }
 
-        function editBlock(blockModel, hideContent) {
-            
-            // make a clone to avoid editing model directly.
-            var blockContentModelClone = angular.copy(blockModel.content);
-            var blockSettingsModelClone = null;
+        function editBlock(blockObject, openSettings) {
 
-            if (blockModel.config.settingsElementTypeAlias) {
-                blockSettingsModelClone = angular.copy(blockModel.settings);
+            var wasNotActiveBefore = blockObject.active !== true;
+            blockObject.active = true;
+
+            if (inlineEditing === true && openSettings !== true) {
+                return;
             }
+
+            // make a clone to avoid editing model directly.
+            var blockContentClone = Utilities.copy(blockObject.content);
+            var blockSettingsClone = null;
+
+            if (blockObject.config.settingsElementTypeKey) {
+                blockSettingsClone = Utilities.copy(blockObject.settings);
+            }
+
+            var hideContent = (openSettings === true && inlineEditing === true);
             
             var blockEditorModel = {
-                content: blockContentModelClone,
                 hideContent: hideContent,
-                settings: blockSettingsModelClone,
-                title: blockModel.label,
+                openSettings: openSettings === true,
+                liveEditing: liveEditing,
+                title: blockObject.label,
                 view: "views/common/infiniteeditors/blockeditor/blockeditor.html",
-                size: blockModel.config.editorSize || "medium",
+                size: blockObject.config.editorSize || "medium",
                 submit: function(blockEditorModel) {
-                    // To ensure syncronization gets tricked we transfer
-                    if (blockEditorModel.content !== null) {
-                        blockEditorService.mapElementTypeValues(blockEditorModel.content, blockModel.content)
+
+                    if (liveEditing === false) {
+                        // transfer values when submitting in none-liveediting mode.
+                        blockObject.retriveValuesFrom(blockEditorModel.content, blockEditorModel.settings);
                     }
-                    if (blockModel.config.settingsElementTypeAlias !== null) {
-                        blockEditorService.mapElementTypeValues(blockEditorModel.settings, blockModel.settings)
-                    }
+
+                    blockObject.active = false;
                     editorService.close();
                 },
                 close: function() {
+
+                    if (liveEditing === true) {
+                        // revert values when closing in liveediting mode.
+                        blockObject.retriveValuesFrom(blockContentClone, blockSettingsClone);
+                    }
+
+                    if (wasNotActiveBefore === true) {
+                        blockObject.active = false;
+                    }
                     editorService.close();
                 }
             };
+
+            if (liveEditing === true) {
+                blockEditorModel.content = blockObject.content;
+                blockEditorModel.settings = blockObject.settings;
+            } else {
+                blockEditorModel.content = blockContentClone;
+                blockEditorModel.settings = blockSettingsClone;
+            }
 
             // open property settings editor
             editorService.open(blockEditorModel);
@@ -238,63 +305,81 @@
                 orderBy: "$index",
                 view: "views/common/infiniteeditors/blockpicker/blockpicker.html",
                 size: (amountOfAvailableTypes > 8 ? "medium" : "small"),
-                clickPasteItem: function(item) {
+                filter: (amountOfAvailableTypes > 8),
+                clickPasteItem: function(item, mouseEvent) {
                     if (item.type === "elementTypeArray") {
                         var indexIncrementor = 0;
-                        item.data.forEach(function (entry) {
+                        item.pasteData.forEach(function (entry) {
                             if (requestPasteFromClipboard(createIndex + indexIncrementor, entry)) {
                                 indexIncrementor++;
                             }
                         });
                     } else {
-                        requestPasteFromClipboard(createIndex, item.data);
+                        requestPasteFromClipboard(createIndex, item.pasteData);
                     }
-                    blockPickerModel.close();
+                    if(!(mouseEvent.ctrlKey || mouseEvent.metaKey)) {
+                        blockPickerModel.close();
+                    }
                 },
-                submit: function(blockPickerModel) {
+                submit: function(blockPickerModel, mouseEvent) {
                     var added = false;
-                    if (model && model.selectedItem) {
-                        added = addNewBlock(createIndex, model.selectedItem.alias);
+                    if (blockPickerModel && blockPickerModel.selectedItem) {
+                        added = addNewBlock(createIndex, blockPickerModel.selectedItem.blockConfigModel.contentTypeKey);
                     }
-                    blockPickerModel.close();
-                    if (added && vm.model.config.useInlineEditingAsDefault !== true && vm.blocks.length > createIndex) {
-                        editBlock(vm.blocks[createIndex]);
+                    
+                    if(!(mouseEvent.ctrlKey || mouseEvent.metaKey)) {
+                        editorService.close();
+                        if (added && vm.layout.length > createIndex) {
+                            editBlock(vm.layout[createIndex].$block);
+                        }
                     }
                 },
                 close: function() {
+                    // if opned by a inline creator button(index less than length), we want to move the focus away, to hide line-creator.
+                    if (createIndex < vm.layout.length) {
+                        vm.setBlockFocus(vm.layout[Math.max(createIndex-1, 0)].$block);
+                    }
+
                     editorService.close();
                 }
             };
 
-            blockPickerModel.pasteItems = [];
+            blockPickerModel.clickClearClipboard = function ($event) {
+                clipboardService.clearEntriesOfType("elementType", vm.availableContentTypesAliases);
+                clipboardService.clearEntriesOfType("elementTypeArray", vm.availableContentTypesAliases);
+            };
 
-            var singleEntriesForPaste = clipboardService.retriveEntriesOfType("elementType", vm.availableContentTypes);
+            blockPickerModel.clipboardItems = [];
+
+            var singleEntriesForPaste = clipboardService.retriveEntriesOfType("elementType", vm.availableContentTypesAliases);
             singleEntriesForPaste.forEach(function (entry) {
-                blockPickerModel.pasteItems.push({
-                    type: "elementType",
-                    name: entry.label,
-                    data: entry.data,
-                    icon: entry.icon
-                });
+                blockPickerModel.clipboardItems.push(
+                    {
+                        type: "elementType",
+                        pasteData: entry.data,
+                        blockConfigModel: modelObject.getScaffoldFromAlias(entry.alias),
+                        elementTypeModel: {
+                            name: entry.label,
+                            icon: entry.icon
+                        }
+                    }
+                );
             });
             
-            var arrayEntriesForPaste = clipboardService.retriveEntriesOfType("elementTypeArray", vm.availableContentTypes);
+            var arrayEntriesForPaste = clipboardService.retriveEntriesOfType("elementTypeArray", vm.availableContentTypesAliases);
             arrayEntriesForPaste.forEach(function (entry) {
-                blockPickerModel.pasteItems.push({
-                    type: "elementTypeArray",
-                    name: entry.label,
-                    data: entry.data,
-                    icon: entry.icon
-                });
+                blockPickerModel.clipboardItems.push(
+                    {
+                        type: "elementTypeArray",
+                        pasteData: entry.data,
+                        blockConfigModel: {}, // no block configuration for paste items of elementTypeArray.
+                        elementTypeModel: {
+                            name: entry.label,
+                            icon: entry.icon
+                        }
+                    }
+                );
             });
-
-            blockPickerModel.clickClearPaste = function ($event) {
-                $event.stopPropagation();
-                $event.preventDefault();
-                clipboardService.clearEntriesOfType("elementType", vm.availableContentTypes);
-                clipboardService.clearEntriesOfType("elementTypeArray", vm.availableContentTypes);
-                vm.blockTypePicker.pasteItems = [];// This dialog is not connected via the clipboardService events, so we need to update manually.
-            };
 
             // open block picker overlay
             editorService.open(blockPickerModel);
@@ -306,9 +391,11 @@
         }
 
         var requestCopyAllBlocks = function() {
+
+            var elementTypesToCopy = vm.layout.filter(entry => entry.$block.config.unsupported !== true).map(entry => entry.$block.content);
             
             // list aliases
-            var aliases = vm.blocks.map(block => block.content.contentTypeAlias);
+            var aliases = elementTypesToCopy.map(content => content.contentTypeAlias);
 
             // remove dublicates
             aliases = aliases.filter((item, index) => aliases.indexOf(item) === index);
@@ -317,8 +404,7 @@
             if(vm.umbVariantContent) {
                 contentNodeName = vm.umbVariantContent.editor.content.name;
             }
-
-            var elementTypesToCopy = vm.blocks.map(block => block.content);
+            // TODO: check if we are in an overlay and then lets get the Label of this block.
 
             localizationService.localize("clipboard_labelForArrayOfItemsFrom", [vm.model.label, contentNodeName]).then(function(localizedLabel) {
                 clipboardService.copyArray("elementTypeArray", aliases, elementTypesToCopy, localizedLabel, "icon-thumbnail-list", vm.model.id);
@@ -339,18 +425,18 @@
             }
 
             // make block model
-            var blockModel = getBlockModel(layoutEntry);
-            if (blockModel === null) {
+            var blockObject = getBlockObject(layoutEntry);
+            if (blockObject === null) {
                 return false;
             }
+
+            // set the BlockObject on our layout entry.
+            layoutEntry.$block = blockObject;
             
             // insert layout entry at the decired location in layout.
-            layout.splice(index, 0, layoutEntry);
+            vm.layout.splice(index, 0, layoutEntry);
 
-            // insert block model at the decired location in blocks.
-            vm.blocks.splice(index, 0, blockModel);
-            
-            vm.moveFocusToBlock = blockModel;
+            vm.currentBlockInFocus = blockObject;
 
             return true;
 
@@ -403,11 +489,6 @@
             openSettingsForBlock: openSettingsForBlock
         }
 
-
-
-        var runtimeSortVars = {};
-
-        vm.sorting = false;
         vm.sortableOptions = {
             axis: "y",
             cursor: "grabbing",
@@ -417,30 +498,8 @@
             distance: 5,
             tolerance: "pointer",
             scroll: true,
-            start: function (ev, ui) {
-                runtimeSortVars.moveFromIndex = ui.item.index();
-                $scope.$evalAsync(function () {
-                    vm.sorting = true;
-                });
-            },
             update: function (ev, ui) {
                 setDirty();
-            },
-            stop: function (ev, ui) {
-
-                // Lets update the layout part of the property model to match the update.
-                var moveFromIndex = runtimeSortVars.moveFromIndex;
-                var moveToIndex = ui.item.index();
-
-                if (moveToIndex !== -1 && moveFromIndex !== moveToIndex) {
-                    var movedEntry = layout[moveFromIndex];
-                    layout.splice(moveFromIndex, 1);
-                    layout.splice(moveToIndex, 0, movedEntry);
-                }
-
-                $scope.$evalAsync(function () {
-                    vm.sorting = false;
-                });
             }
         };
 
@@ -448,30 +507,22 @@
         function onAmountOfBlocksChanged() {
 
             // enable/disable property actions
-            copyAllBlocksAction.isDisabled = vm.blocks.length === 0;
-            deleteAllBlocksAction.isDisabled = vm.blocks.length === 0;
+            copyAllBlocksAction.isDisabled = vm.layout.length === 0;
+            deleteAllBlocksAction.isDisabled = vm.layout.length === 0;
 
             // validate limits:
             if (vm.propertyForm) {
-                if (vm.validationLimit.min !== null && vm.blocks.length < vm.validationLimit.min) {
-                    vm.propertyForm.minCount.$setValidity("minCount", false);
-                }
-                else {
-                    vm.propertyForm.minCount.$setValidity("minCount", true);
-                }
-                if (vm.validationLimit.max !== null && vm.blocks.length > vm.validationLimit.max) {
-                    vm.propertyForm.maxCount.$setValidity("maxCount", false);
-                }
-                else {
-                    vm.propertyForm.maxCount.$setValidity("maxCount", true);
-                }
+
+                var isMinRequirementGood = vm.validationLimit.min === null || vm.layout.length >= vm.validationLimit.min;
+                vm.propertyForm.minCount.$setValidity("minCount", isMinRequirementGood);
+                
+                var isMaxRequirementGood = vm.validationLimit.max === null || vm.layout.length <= vm.validationLimit.max;
+                vm.propertyForm.maxCount.$setValidity("maxCount", isMaxRequirementGood);
+                
             }
         }
+        unsubscribe.push($scope.$watch(() => vm.layout.length, onAmountOfBlocksChanged));
 
-
-
-
-        unsubscribe.push($scope.$watch(() => vm.blocks.length, onAmountOfBlocksChanged));
         
         $scope.$on("$destroy", function () {
             for (const subscription of unsubscribe) {

@@ -20,7 +20,7 @@ namespace Umbraco.Web.PropertyEditors
     /// </summary>
     public abstract class BlockEditorPropertyEditor : DataEditor
     {
-        public const string ContentTypeAliasPropertyKey = "contentTypeAlias";
+        public const string ContentTypeKeyPropertyKey = "contentTypeKey";
         public const string UdiPropertyKey = "udi";
         private readonly IBlockEditorDataHelper _dataHelper;
         private readonly Lazy<PropertyEditorCollection> _propertyEditors;
@@ -161,18 +161,18 @@ namespace Umbraco.Web.PropertyEditors
         internal class BlockEditorValues
         {
             private readonly IBlockEditorDataHelper _dataHelper;
-            private readonly Lazy<Dictionary<string, IContentType>> _contentTypes;
+            private readonly Lazy<Dictionary<Guid, IContentType>> _contentTypes;
 
             public BlockEditorValues(IBlockEditorDataHelper dataHelper, IContentTypeService contentTypeService)
             {
                 _dataHelper = dataHelper;
-                _contentTypes = new Lazy<Dictionary<string, IContentType>>(() => contentTypeService.GetAll().ToDictionary(c => c.Alias));
+                _contentTypes = new Lazy<Dictionary<Guid, IContentType>>(() => contentTypeService.GetAll().ToDictionary(c => c.Key));
             }
 
             private IContentType GetElementType(JObject item)
             {
-                var contentTypeAlias = item[ContentTypeAliasPropertyKey]?.ToObject<string>() ?? string.Empty;
-                _contentTypes.Value.TryGetValue(contentTypeAlias, out var contentType);
+                Guid contentTypeKey = item[ContentTypeKeyPropertyKey]?.ToObject<Guid>() ?? Guid.Empty;
+                _contentTypes.Value.TryGetValue(contentTypeKey, out var contentType);
                 return contentType;
             }
 
@@ -270,6 +270,6 @@ namespace Umbraco.Web.PropertyEditors
         }
         #endregion
 
-        private static bool IsSystemPropertyKey(string propertyKey) => ContentTypeAliasPropertyKey == propertyKey || UdiPropertyKey == propertyKey;
+        private static bool IsSystemPropertyKey(string propertyKey) => ContentTypeKeyPropertyKey == propertyKey || UdiPropertyKey == propertyKey;
     }
 }

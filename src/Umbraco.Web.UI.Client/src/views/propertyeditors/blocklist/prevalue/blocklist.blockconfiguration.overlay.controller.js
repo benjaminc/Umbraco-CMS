@@ -23,14 +23,14 @@
             });
         }
 
-        vm.getElementTypeByAlias = function(alias) {
+        vm.getElementTypeByKey = function(key) {
             return _.find(vm.elementTypes, function (type) {
-                return type.alias === alias;
+                return type.key === key;
             });
         };
 
-        vm.openElementType = function(elementTypeAlias) {
-            var elementTypeId = vm.getElementTypeByAlias(elementTypeAlias).id;
+        vm.openElementType = function(elementTypeKey) {
+            var elementTypeId = vm.getElementTypeByKey(elementTypeKey).id;
             const editor = {
                 id: elementTypeId,
                 submit: function (model) {
@@ -44,44 +44,66 @@
             editorService.documentTypeEditor(editor);
         }
 
-        vm.addSettingsForBlock = function ($event, block) {
-
-            var elemTypeSelectorOverlay = {
-                view: "itempicker",
-                title: "Pick settings (missing translation)",
-                availableItems: vm.elementTypes,
-                position: "target",
-                event: $event,
-                size: vm.elementTypes.length < 7 ? "small" : "medium",
-                createNewItem: {
-                    action: function() {
-                        overlayService.close();
-                        vm.createElementTypeAndAdd((alias) => {
-                            vm.applySettingsToBlock(block, alias);
-                        });
-                    },
-                    icon: "icon-add",
-                    name: "Create new"
-                },
-                submit: function (overlay) {
-                    vm.applySettingsToBlock(block, overlay.selectedItem.alias);
-                    overlayService.close();
+        vm.createElementTypeAndCallback = function(callback) {
+            const editor = {
+                create: true,
+                infiniteMode: true,
+                isElement: true,
+                submit: function (model) {
+                    loadElementTypes().then( function () {
+                        callback(model.documentTypeKey);
+                    });
+                    editorService.close();
                 },
                 close: function () {
-                    overlayService.close();
+                    editorService.close();
                 }
             };
+            editorService.documentTypeEditor(editor);
+        }
 
-            overlayService.open(elemTypeSelectorOverlay);
+        vm.addSettingsForBlock = function ($event, block) {
+
+            localizationService.localizeMany(["blockEditor_headlineAddSettingsElementType", "blockEditor_labelcreateNewElementType"]).then(function(localized) {
+
+                var elemTypeSelectorOverlay = {
+                    view: "itempicker",
+                    title: localized[0],
+                    availableItems: vm.elementTypes,
+                    position: "target",
+                    event: $event,
+                    size: vm.elementTypes.length < 7 ? "small" : "medium",
+                    createNewItem: {
+                        action: function() {
+                            overlayService.close();
+                            vm.createElementTypeAndCallback((key) => {
+                                vm.applySettingsToBlock(block, key);
+                            });
+                        },
+                        icon: "icon-add",
+                        name: localized[1]
+                    },
+                    submit: function (overlay) {
+                        vm.applySettingsToBlock(block, overlay.selectedItem.key);
+                        overlayService.close();
+                    },
+                    close: function () {
+                        overlayService.close();
+                    }
+                };
+
+                overlayService.open(elemTypeSelectorOverlay);
+
+            });
         };
-        vm.applySettingsToBlock = function(block, alias) {
-            block.settingsElementTypeAlias = alias;
+        vm.applySettingsToBlock = function(block, key) {
+            block.settingsElementTypeKey = key;
         };
 
         vm.requestRemoveSettingsForBlock = function(block) {
             localizationService.localizeMany(["general_remove", "defaultdialogs_confirmremoveusageof"]).then(function (data) {
 
-                var settingsElementType = vm.getElementTypeByAlias(entry.settingsElementTypeAlias);
+                var settingsElementType = vm.getElementTypeByKey(block.settingsElementTypeKey);
 
                 overlayService.confirmRemove({
                     title: data[0],
@@ -90,37 +112,39 @@
                         overlayService.close();
                     },
                     submit: function () {
-                        vm.removeSettingsForEntry(entry);
+                        vm.removeSettingsForBlock(block);
                         overlayService.close();
                     }
                 });
             });
         };
-        vm.removeSettingsForEntry = function(entry) {
-            entry.settingsElementTypeAlias = null;
+        vm.removeSettingsForBlock = function(block) {
+            block.settingsElementTypeKey = null;
         };
 
 
         vm.addViewForBlock = function(block) {
-            const filePicker = {
-                title: "Select view (TODO need translation)",
-                section: "settings",
-                treeAlias: "files",
-                entityType: "file",
-                isDialog: true,
-                filter: function (i) {
-                    return i.name.indexOf(".html" !== -1);
-                },
-                select: function (file) {
-                    console.log(file);
-                    block.view = file.name;
-                    editorService.close();
-                },
-                close: function () {
-                    editorService.close();
-                }
-            };
-            editorService.treePicker(filePicker);
+            localizationService.localize("blockEditor_headlineSelectView").then(function(localizedTitle) {
+
+                const filePicker = {
+                    title: localizedTitle,
+                    section: "settings",
+                    treeAlias: "files",
+                    entityType: "file",
+                    isDialog: true,
+                    select: function (node) {
+                        console.log(node)
+                        const filepath = decodeURIComponent(node.id.replace(/\+/g, " "));
+                        block.view = filepath;
+                        editorService.close();
+                    },
+                    close: function () {
+                        editorService.close();
+                    }
+                };
+                editorService.treePicker(filePicker);
+            
+            });
         }
         vm.requestRemoveViewForBlock = function(block) {
             localizationService.localizeMany(["general_remove", "defaultdialogs_confirmremoveusageof"]).then(function (data) {
@@ -142,26 +166,74 @@
         };
 
 
+        
+        vm.addStylesheetForBlock = function(block) {
+            localizationService.localize("blockEditor_headlineAddCustomStylesheet").then(function(localizedTitle) {
+                    
+                const filePicker = {
+                    title: localizedTitle,
+                    section: "settings",
+                    treeAlias: "files",
+                    entityType: "file",
+                    isDialog: true,
+                    select: function (node) {
+                        const filepath = decodeURIComponent(node.id.replace(/\+/g, " "));
+                        block.stylesheet = filepath;
+                        editorService.close();
+                    },
+                    close: function () {
+                        editorService.close();
+                    }
+                };
+                editorService.treePicker(filePicker);
+
+            });
+        }
+        vm.requestRemoveStylesheetForBlock = function(block) {
+            localizationService.localizeMany(["general_remove", "defaultdialogs_confirmremoveusageof"]).then(function (data) {
+                overlayService.confirmRemove({
+                    title: data[0],
+                    content: localizationService.tokenReplace(data[1], [block.stylesheet]),
+                    close: function () {
+                        overlayService.close();
+                    },
+                    submit: function () {
+                        vm.removeStylesheetForBlock(block);
+                        overlayService.close();
+                    }
+                });
+            });
+        };
+        vm.removeStylesheetForBlock = function(block) {
+            block.stylesheet = null;
+        };
+
+
 
         vm.addThumbnailForBlock = function(block) {
-            const thumbnailPicker = {
-                title: "Select thumbnail (TODO need translation)",
-                section: "settings",
-                treeAlias: "files",
-                entityType: "file",
-                isDialog: true,
-                filter: function (i) {
-                    return !(i.name.indexOf(".jpg") !== -1 || i.name.indexOf(".jpeg") !== -1 || i.name.indexOf(".png") !== -1 || i.name.indexOf(".svg") !== -1 || i.name.indexOf(".webp") !== -1 || i.name.indexOf(".gif") !== -1);
-                },
-                select: function (file) {
-                    block.thumbnail = file.name;
-                    editorService.close();
-                },
-                close: function () {
-                    editorService.close();
-                }
-            };
-            editorService.treePicker(thumbnailPicker);
+
+            localizationService.localize("blockEditor_headlineAddThumbnail").then(function(localizedTitle) {
+
+                const thumbnailPicker = {
+                    title: localizedTitle,
+                    section: "settings",
+                    treeAlias: "files",
+                    entityType: "file",
+                    isDialog: true,
+                    filter: function (i) {
+                        return !(i.name.indexOf(".jpg") !== -1 || i.name.indexOf(".jpeg") !== -1 || i.name.indexOf(".png") !== -1 || i.name.indexOf(".svg") !== -1 || i.name.indexOf(".webp") !== -1 || i.name.indexOf(".gif") !== -1);
+                    },
+                    select: function (file) {
+                        block.thumbnail = file.name;
+                        editorService.close();
+                    },
+                    close: function () {
+                        editorService.close();
+                    }
+                };
+                editorService.treePicker(thumbnailPicker);
+
+            });
         }
         vm.removeThumbnailForBlock = function(entry) {
             entry.thumbnail = null;

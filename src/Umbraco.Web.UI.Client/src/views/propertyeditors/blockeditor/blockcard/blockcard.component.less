@@ -4,14 +4,18 @@ umb-block-card {
     display: inline-block;
     width: 100%;
     height: auto;
-    margin-right: 20px;
-    margin-bottom: 20px;
     background-color: white;
     border-radius: @doubleBorderRadius;
     box-shadow: 0 1px 2px rgba(0,0,0,.2);
     overflow: hidden;
 
+    transition: box-shadow 120ms;
+
     cursor: pointer;
+
+    &:hover {
+        box-shadow: 0 1px 3px rgba(@ui-action-type-hover, .5);
+    }
 
     &.--isOpen {
         &::after {
@@ -51,7 +55,7 @@ umb-block-card {
         position: relative;
         width: 100%;
         padding-bottom: 10/16*100%;
-        background-color: @gray-11;
+        background-color: @gray-12;
         
         background-size: cover;
         background-position: 50% 50%;

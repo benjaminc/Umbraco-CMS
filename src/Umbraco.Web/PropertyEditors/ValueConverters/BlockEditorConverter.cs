@@ -20,15 +20,20 @@ namespace Umbraco.Web.PropertyEditors.ValueConverters
         }
 
         public IPublishedElement ConvertToElement(
-            JObject sourceObject, string contentTypeAliasPropertyKey,
+            JObject sourceObject, string contentTypeKeyPropertyKey,
             PropertyCacheLevel referenceCacheLevel, bool preview)
         {
-            var elementTypeAlias = sourceObject[contentTypeAliasPropertyKey]?.ToObject<string>();
-            if (string.IsNullOrEmpty(elementTypeAlias))
+            var elementTypeKey = sourceObject[contentTypeKeyPropertyKey]?.ToObject<Guid>();
+            if (!elementTypeKey.HasValue)
                 return null;
 
+            // hack! we need to cast, we have n ochoice beacuse we cannot make breaking changes.
+            var publishedContentCache = _publishedSnapshotAccessor.PublishedSnapshot.Content as IPublishedContentCache2;
+            if (publishedContentCache == null)
+                throw new InvalidOperationException("The published content cache is not " + typeof(IPublishedContentCache2));
+
             // only convert element types - content types will cause an exception when PublishedModelFactory creates the model
-            var publishedContentType = _publishedSnapshotAccessor.PublishedSnapshot.Content.GetContentType(elementTypeAlias);
+            var publishedContentType = publishedContentCache.GetContentType(elementTypeKey.Value);
             if (publishedContentType == null || publishedContentType.IsElement == false)
                 return null;
 

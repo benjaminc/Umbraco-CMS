@@ -73,11 +73,7 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             var propLk = props.ToLookup(p => p.ContentTypeId, p => p.Alias);
 
             var knownMap = new Dictionary<Guid, KnownContentType>(types.Count);
-            types.ForEach(t => knownMap[t.NodeDto.UniqueId] = new KnownContentType
-            {
-                Alias = t.Alias,
-                StringToRawProperties = propLk[t.NodeId].Union(joinLk[t.NodeId].SelectMany(r => propLk[r])).ToArray()
-            });
+            types.ForEach(t => knownMap[t.NodeDto.UniqueId] = new KnownContentType(t.Alias, t.NodeDto.UniqueId, propLk[t.NodeId].Union(joinLk[t.NodeId].SelectMany(r => propLk[r])).ToArray()));
             return knownMap;
         }
 
@@ -109,9 +105,9 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             {
                 Blocks = old.ContentTypes?.Select(t => new BlockListConfiguration.BlockConfiguration
                 {
-                    Alias = knownDocumentTypes.TryGetValue(t.IcContentTypeGuid, out var ct) ? ct.Alias : null,
+                    Key = knownDocumentTypes.TryGetValue(t.IcContentTypeGuid, out var ct) ? ct.Key : Guid.Empty,
                     Label = t.NameTemplate
-                }).Where(c => c.Alias != null).ToArray(),
+                }).Where(c => c.Key != null).ToArray(),
                 UseInlineEditingAsDefault = old.SingleItemMode == "1" || old.SingleItemMode == bool.TrueString
             };
 
@@ -197,11 +193,11 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
                 [JsonProperty("thumbnail")]
                 public string Thumbnail { get; set; }
 
-                [JsonProperty("contentTypeAlias")]
-                public string Alias { get; set; }
+                [JsonProperty("contentTypeKey")]
+                public Guid Key { get; set; }
 
-                [JsonProperty("settingsElementTypeAlias")]
-                public string SettingsElementTypeAlias { get; set; }
+                [JsonProperty("settingsElementTypeKey")]
+                public string settingsElementTypeKey { get; set; }
 
                 [JsonProperty("view")]
                 public string View { get; set; }
@@ -249,14 +245,14 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
             {
                 if (!Guid.TryParse(obj["key"].ToString(), out var key)) key = Guid.NewGuid();
                 if (!Guid.TryParse(obj["icContentTypeGuid"].ToString(), out var ctGuid)) ctGuid = Guid.Empty;
-                if (!knownDocumentTypes.TryGetValue(ctGuid, out var ct)) ct = new KnownContentType { Alias = ctGuid.ToString() };
+                if (!knownDocumentTypes.TryGetValue(ctGuid, out var ct)) ct = new KnownContentType(null, ctGuid, null);
 
                 obj.Remove("key");
                 obj.Remove("icContentTypeGuid");
 
                 var udi = new GuidUdi(Constants.UdiEntityType.Element, key).ToString();
-                obj["udi"] = udi;
-                obj["contentTypeAlias"] = ct.Alias;
+                obj["udi"] = udi;                
+                obj["contentTypeKey"] = ct.Key;
 
                 if (ct.StringToRawProperties != null && ct.StringToRawProperties.Length > 0)
                 {
@@ -290,8 +286,16 @@ namespace Umbraco.Core.Migrations.Upgrade.V_8_7_0
 
         private class KnownContentType
         {
-            public string Alias { get; set; }
-            public string[] StringToRawProperties { get; set; }
+            public KnownContentType(string alias, Guid key, string[] stringToRawProperties)
+            {
+                Alias = alias ?? throw new ArgumentNullException(nameof(alias));
+                Key = key;
+                StringToRawProperties = stringToRawProperties ?? throw new ArgumentNullException(nameof(stringToRawProperties));
+            }
+
+            public string Alias { get; }
+            public Guid Key { get;  }
+            public string[] StringToRawProperties { get;  }
         }
     }
 }

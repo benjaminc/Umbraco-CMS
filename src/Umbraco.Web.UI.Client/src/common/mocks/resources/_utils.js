@@ -90,7 +90,7 @@ angular.module('umbraco.mocks').
                                             name: "1 column layout",
                                             sections: [
                                                 {
-                                                    grid: 12,
+                                                    grid: 12
                                                 }
                                             ]
                                         },
@@ -98,7 +98,7 @@ angular.module('umbraco.mocks').
                                             name: "2 column layout",
                                             sections: [
                                                 {
-                                                    grid: 4,
+                                                    grid: 4
                                                 },
                                                 {
                                                     grid: 8
@@ -139,7 +139,7 @@ angular.module('umbraco.mocks').
                                     }
 
                                 }
-                            },
+                            }
                         ]
                     },
                     {
@@ -296,6 +296,7 @@ angular.module('umbraco.mocks').
                     path: "-1,1234,2455",
                     allowedActions: ["U", "H", "A"],
                     contentTypeAlias: "testAlias", 
+                    contentTypeKey: "7C5B74D1-E2F9-45A3-AE4B-FC7A829BF8AB", 
                     variants: [
                         {
                             name: "",

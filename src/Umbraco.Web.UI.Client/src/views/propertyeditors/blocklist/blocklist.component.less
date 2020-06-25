@@ -24,7 +24,7 @@
     &:hover,
     &:focus,
     &:focus-within,
-    &.--open {
+    &.--active {
         
         > .umb-block-list__block--actions {
             opacity: 1;
@@ -33,6 +33,7 @@
 }
 .umb-block-list__block--actions {
     position: absolute;
+    z-index:999999999;// We always want to be on top of custom view, but we need to make sure we still are behind relevant Umbraco CMS UI. ToDo: Needs further testing.
     top: 10px;
     right: 10px;
     font-size: 0;
@@ -41,6 +42,7 @@
     padding-left: 5px;
     padding-right: 5px;
     .action {
+        position: relative;
         display: inline-block;
         color: @ui-action-discreet-type;
         font-size: 18px;
@@ -71,7 +73,7 @@
     opacity: 0;
     outline: none;
     height: 12px;
-    margin-top: -7px;
+    margin-top: -9px;
     padding-top: 6px;
     margin-bottom: -6px;
     transition: opacity 240ms;
@@ -136,6 +138,7 @@
     }
 }
 .umb-block-list__create-button {
+    position: relative;
     display: flex;
     width: 100%;
     align-items: center;
